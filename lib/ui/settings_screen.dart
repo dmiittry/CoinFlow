@@ -94,7 +94,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
           'Неизвестная кодировка. Сохраните CSV в UTF-8.',
         );
       }
-      final next = csv.parse(text);
+      final preview = csv.preview(text);
+      final next = preview.data;
       if (!mounted) {
         return;
       }
@@ -112,11 +113,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   style: const TextStyle(fontWeight: FontWeight.w600),
                 ),
                 const SizedBox(height: 16),
+                Text('Формат: ${preview.formatName}'),
+                const SizedBox(height: 8),
                 for (final kind in CardKind.values)
                   Text(
                     '${CsvService.sections[kind.index]}: ${next.cards.where((c) => c.kind == kind).length} карточек',
                   ),
                 Text('Операций: ${next.entries.length}'),
+                for (final notice in preview.notices)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 12),
+                    child: Text(notice),
+                  ),
                 const SizedBox(height: 16),
                 Text(
                   next.cards.map((c) => c.name).join(' · '),
@@ -344,7 +352,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ListTile(
                 leading: const Icon(Icons.file_download_outlined, color: cyan),
                 title: const Text('Импорт CSV'),
-                subtitle: const Text('Проверка файла и создание карточек'),
+                subtitle: const Text(
+                  'CoinFlow и CoinKeeper · проверка перед импортом',
+                ),
                 trailing: const Icon(Icons.chevron_right),
                 onTap: working || c.busy ? null : importFile,
               ),

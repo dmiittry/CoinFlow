@@ -470,6 +470,61 @@ void main() {
     },
   );
 
+  testWidgets(
+    'CoinKeeper preview and cancel leave storage unchanged; confirm imports history',
+    (tester) async {
+      final c = await app(tester);
+      final original = c.data.toJson();
+      final stored = c.preferences.getString(LocalFinanceRepository.key);
+      files.csv(
+        'Date,Type,From,To,Tags,Amount,Currency,Amount converted,Currency of conversion,Recurrence,Note\n'
+        '01.10.2026,income,Работа,Банк,,1000,RUB,,,false,Тестовый доход\n'
+        '02.10.2026,expense,Банк,Еда,,20.50,RUB,,,false,Тестовый расход\n'
+        '03.10.2026,transfer,Банк,Наличные,,100,RUB,,,false,Тестовый перевод',
+      );
+      await tap(tester, find.text('Настройки'));
+      await tap(tester, find.text('Импорт CSV'));
+      expect(find.text('Формат: CoinKeeper'), findsOneWidget);
+      expect(find.text('Операций: 3'), findsOneWidget);
+      expect(
+        find.textContaining('нет начальных остатков и лимитов'),
+        findsOneWidget,
+      );
+      expect(c.data.toJson(), original);
+      expect(c.preferences.getString(LocalFinanceRepository.key), stored);
+      await tap(tester, find.text('Отмена'));
+      expect(c.preferences.getString(LocalFinanceRepository.key), stored);
+      await tap(tester, find.text('Импорт CSV'));
+      await tap(tester, find.text('Заменить и импортировать'));
+      expect(c.data.entries.length, 3);
+      expect(c.data.cards.length, 4);
+      expect(c.data.total(CardKind.wallet, c.month), 97950);
+      final restored = await LocalFinanceRepository(c.preferences).load();
+      expect(restored.toJson(), c.data.toJson());
+      expect(c.previousData!.toJson(), original);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'invalid CoinKeeper row never offers to import a partial history',
+    (tester) async {
+      final c = await app(tester);
+      final original = c.data.toJson();
+      files.csv(
+        'Date,Type,From,To,Amount,Currency\n'
+        '01.10.2026,expense,Банк,Еда,10,RUB\n'
+        '31.02.2026,expense,Банк,Еда,10,RUB',
+      );
+      await tap(tester, find.text('Настройки'));
+      await tap(tester, find.text('Импорт CSV'));
+      expect(c.data.toJson(), original);
+      expect(find.byType(AlertDialog), findsNothing);
+      expect(find.textContaining('Строка 3 CoinKeeper'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
   testWidgets('reset confirmation and every theme survive logout and restart', (
     tester,
   ) async {

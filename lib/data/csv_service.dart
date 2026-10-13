@@ -1,5 +1,17 @@
 import 'dart:convert';
 import '../domain/models.dart';
+import 'coinkeeper_csv.dart';
+
+class CsvImportPreview {
+  final FinanceData data;
+  final String formatName;
+  final List<String> notices;
+  const CsvImportPreview({
+    required this.data,
+    required this.formatName,
+    this.notices = const [],
+  });
+}
 
 class CsvService {
   static const headers = [
@@ -66,7 +78,9 @@ class CsvService {
   String template({bool empty = false}) =>
       '\uFEFFДата;Доход: Зарплата;Доход: Фриланс;Кошелек: Наличные;Кошелек: Карта;Расход: Продукты;Расход: Такси\r\n${DateTime.now().toIso8601String().substring(0, 10)};${empty ? '0;0;0;0;0;0' : '80000;15000;5000;42000;12500;2300'}\r\n';
 
-  FinanceData parse(String input) {
+  FinanceData parse(String input) => preview(input).data;
+
+  CsvImportPreview preview(String input) {
     if (utf8.encode(input).length > 5 * 1024 * 1024) {
       throw const FormatException('Максимальный размер CSV — 5 МБ');
     }
@@ -87,6 +101,15 @@ class CsvService {
         );
       }
     }
+    if (CoinKeeperCsv.matches(head)) {
+      final imported = CoinKeeperCsv.parse(head, rows.skip(1).toList());
+      imported.data.validate();
+      return CsvImportPreview(
+        data: imported.data,
+        formatName: 'CoinKeeper',
+        notices: imported.notices,
+      );
+    }
     final data = head.contains('Раздел')
         ? _normalized(head, rows.skip(1).toList())
         : _wide(head, rows.skip(1).toList());
@@ -94,7 +117,12 @@ class CsvService {
       throw const FormatException('В файле нет карточек');
     }
     data.validate();
-    return data;
+    return CsvImportPreview(
+      data: data,
+      formatName: head.contains('Раздел')
+          ? 'Полная копия CoinFlow'
+          : 'Снимок остатков',
+    );
   }
 
   FinanceData _normalized(List<String> head, List<List<String>> rows) {
