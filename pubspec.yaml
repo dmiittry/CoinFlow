@@ -1,0 +1,23 @@
+name: coin_flow
+description: Local-first personal finance tracker, ready for a future Django API.
+publish_to: none
+version: 1.0.0+1
+environment:
+  sdk: '>=3.8.0 <4.0.0'
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+  shared_preferences: ^2.5.3
+  file_picker: ^10.3.10
+  intl: any
+  http: ^1.6.0
+  cupertino_icons: ^2.0.0
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+  shared_preferences_platform_interface: ^2.4.2
+flutter:
+  uses-material-design: true
