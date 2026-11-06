@@ -3,7 +3,10 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../application/app_controller.dart';
 import '../domain/models.dart';
+import '../domain/reports.dart';
 import 'editors.dart';
+import 'plan_screen.dart';
+import 'reports_screen.dart';
 import 'settings_screen.dart';
 import 'style.dart';
 
@@ -66,6 +69,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     for (final item in [
                       (Icons.grid_view_rounded, 'Обзор'),
                       (Icons.receipt_long_outlined, 'Операции'),
+                      (Icons.insights_outlined, 'Отчёты'),
                       (Icons.settings_outlined, 'Настройки'),
                     ].asMap().entries)
                       Padding(
@@ -145,6 +149,8 @@ class _HomeScreenState extends State<HomeScreen> {
                                         ? (wide ? 'Мои финансы' : 'CoinFlow')
                                         : page == 1
                                         ? 'Операции'
+                                        : page == 2
+                                        ? 'Отчёты'
                                         : 'Настройки',
                                     style: const TextStyle(
                                       fontSize: 26,
@@ -163,10 +169,10 @@ class _HomeScreenState extends State<HomeScreen> {
                                 ],
                               ),
                             ),
-                            if (page != 2)
+                            if (page != 3)
                               IconButton(
                                 tooltip: 'Настройки',
-                                onPressed: () => setState(() => page = 2),
+                                onPressed: () => setState(() => page = 3),
                                 icon: const Icon(Icons.tune_rounded),
                               ),
                             CircleAvatar(
@@ -207,6 +213,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         child: switch (page) {
                           0 => overview(wide),
                           1 => HistoryView(controller: c),
+                          2 => ReportsScreen(controller: c),
                           _ => SettingsScreen(controller: c),
                         },
                       ),
@@ -218,7 +225,7 @@ class _HomeScreenState extends State<HomeScreen> {
           ],
         ),
       ),
-      floatingActionButton: page == 2
+      floatingActionButton: page >= 2
           ? null
           : FloatingActionButton.extended(
               backgroundColor: mint,
@@ -244,6 +251,10 @@ class _HomeScreenState extends State<HomeScreen> {
                   label: 'Операции',
                 ),
                 NavigationDestination(
+                  icon: Icon(Icons.insights_outlined),
+                  label: 'Отчёты',
+                ),
+                NavigationDestination(
                   icon: Icon(Icons.tune_rounded),
                   label: 'Настройки',
                 ),
@@ -255,9 +266,11 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget overview(bool wide) {
     final balance = c.data.total(CardKind.wallet, c.month);
     final expenses = c.data.total(CardKind.expense, c.month);
-    final plan = c.data.cards
-        .where((x) => x.kind == CardKind.expense)
-        .fold<int>(0, (s, x) => s + x.budget);
+    final progress = PlanProgress.calculate(c.data, c.month);
+    final overCategories = progress.plan.limits.entries
+        .where((e) => (progress.spending[e.key] ?? 0) > e.value)
+        .map((e) => c.data.card(e.key).name)
+        .join(', ');
     return ListView(
       padding: EdgeInsets.fromLTRB(wide ? 14 : 0, 4, wide ? 14 : 0, 100),
       children: [
@@ -273,14 +286,86 @@ class _HomeScreenState extends State<HomeScreen> {
           child: Row(
             children: [
               summary(
+                'План',
+                progress.plan.total,
+                Icons.flag_outlined,
+                cyan,
+                onTap: () => openPlan(context, c),
+              ),
+              summary(
+                'Потрачено',
+                expenses,
+                Icons.south_west_rounded,
+                mint,
+                onTap: () => setState(() => page = 2),
+              ),
+              summary(
                 'Баланс сейчас',
                 balance,
                 Icons.account_balance_wallet_outlined,
                 const Color(0xFFBD9600),
               ),
-              summary('Расходы', expenses, Icons.south_west_rounded, mint),
-              summary('Лимит', plan, Icons.flag_outlined, cyan),
             ],
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+          child: Card(
+            elevation: 0,
+            margin: EdgeInsets.zero,
+            child: InkWell(
+              key: const ValueKey('open-month-plan'),
+              borderRadius: BorderRadius.circular(20),
+              onTap: () => openPlan(context, c),
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    PlanLine(
+                      title: 'План на ${monthName(c.month)}',
+                      planned: progress.plan.total,
+                      spent: progress.spent,
+                    ),
+                    const SizedBox(height: 10),
+                    Text(
+                      'Остальное: ${money(progress.otherSpent)} из ${money(progress.plan.reserve)}',
+                      style: TextStyle(
+                        color: progress.reserveRemaining < 0
+                            ? Theme.of(context).colorScheme.error
+                            : null,
+                      ),
+                    ),
+                    if (progress.reserveRemaining < 0)
+                      Text(
+                        'Перерасход резерва: ${money(-progress.reserveRemaining)}',
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.error,
+                        ),
+                      ),
+                    if (overCategories.isNotEmpty)
+                      Text(
+                        'Превышен план: $overCategories',
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.error,
+                        ),
+                      ),
+                    const SizedBox(height: 6),
+                    const Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            'Категории и резерв · Настроить план',
+                            style: TextStyle(fontSize: 12),
+                          ),
+                        ),
+                        Icon(Icons.arrow_forward, size: 16),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
           ),
         ),
         Container(
@@ -343,42 +428,51 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget summary(String label, int value, IconData icon, Color color) =>
-      Expanded(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 4),
-          child: Column(
-            children: [
-              FittedBox(
-                fit: BoxFit.scaleDown,
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(icon, size: 13, color: color),
-                    const SizedBox(width: 4),
-                    Text(
-                      label,
-                      style: const TextStyle(fontSize: 12, color: Colors.grey),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 9),
-              FittedBox(
-                fit: BoxFit.scaleDown,
-                child: Text(
-                  money(value),
-                  style: const TextStyle(
-                    fontSize: 21,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: -.7,
+  Widget summary(
+    String label,
+    int value,
+    IconData icon,
+    Color color, {
+    VoidCallback? onTap,
+  }) => Expanded(
+    child: InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 4),
+        child: Column(
+          children: [
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(icon, size: 13, color: color),
+                  const SizedBox(width: 4),
+                  Text(
+                    label,
+                    style: const TextStyle(fontSize: 12, color: Colors.grey),
                   ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 9),
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Text(
+                money(value),
+                style: const TextStyle(
+                  fontSize: 21,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: -.7,
                 ),
               ),
-            ],
-          ),
+            ),
+          ],
         ),
-      );
+      ),
+    ),
+  );
 
   Widget cardGrid(CardKind kind) {
     final cards = c.data.cards.where((card) => card.kind == kind).toList();
@@ -409,7 +503,11 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
           itemCount: cards.length,
           itemBuilder: (context, i) {
-            final card = cards[i];
+            final card = kind == CardKind.expense
+                ? cards[i].copyWith(
+                    budget: c.data.planFor(c.month).limits[cards[i].id] ?? 0,
+                  )
+                : cards[i];
             final tile = MoneyTile(
               card: card,
               value: c.data.value(card, c.month),

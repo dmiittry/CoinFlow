@@ -72,6 +72,40 @@ class CsvService {
         ]);
       }
     }
+    for (final item in data.monthlyPlans.entries) {
+      final date = '${item.key}-01';
+      // Reserve row also preserves an explicitly empty monthly plan.
+      rows.add([
+        'Расходы',
+        'План',
+        '',
+        'Остальное',
+        '',
+        decimalMoney(item.value.reserve),
+        '',
+        date,
+        '',
+        '',
+        'reserve',
+        '',
+      ]);
+      for (final limit in item.value.limits.entries) {
+        rows.add([
+          'Расходы',
+          'План',
+          '',
+          '',
+          '',
+          decimalMoney(limit.value),
+          '',
+          date,
+          '',
+          limit.key,
+          'category',
+          '',
+        ]);
+      }
+    }
     return '\uFEFF${rows.map((r) => r.map(_escape).join(';')).join('\r\n')}\r\n';
   }
 
@@ -133,6 +167,8 @@ class CsvService {
     }
     final cards = <MoneyCard>[];
     final entries = <MoneyEntry>[];
+    final planLimits = <String, Map<String, int>>{};
+    final reserves = <String, int>{};
     for (var i = 0; i < rows.length; i++) {
       String get(String key) => rows[i][head.indexOf(key)];
       try {
@@ -175,6 +211,33 @@ class CsvService {
               note: get('Комментарий'),
             ),
           );
+        } else if (get('Запись') == 'План') {
+          if (section != 2) {
+            throw const FormatException('План должен быть в разделе Расходы');
+          }
+          final date = parseFinanceDate(get('Дата'));
+          if (date.day != 1) {
+            throw const FormatException(
+              'Дата плана должна быть первым числом месяца',
+            );
+          }
+          final key = monthKey(date);
+          final amount = parseMoney(get('Лимит'));
+          final limits = planLimits.putIfAbsent(key, () => {});
+          if (get('Тип') == 'reserve') {
+            if (reserves.containsKey(key)) {
+              throw const FormatException('Повтор резерва месяца');
+            }
+            reserves[key] = amount;
+          } else if (get('Тип') == 'category') {
+            final id = get('Категория');
+            if (limits.containsKey(id)) {
+              throw const FormatException('Повтор категории плана');
+            }
+            limits[id] = amount;
+          } else {
+            throw const FormatException('Неизвестный тип плана');
+          }
         } else {
           throw const FormatException('Неизвестный тип записи');
         }
@@ -182,7 +245,17 @@ class CsvService {
         throw FormatException('Строка ${i + 2}: $e');
       }
     }
-    return FinanceData(cards: cards, entries: entries);
+    return FinanceData(
+      cards: cards,
+      entries: entries,
+      monthlyPlans: {
+        for (final item in planLimits.entries)
+          item.key: MonthlyPlan(
+            limits: item.value,
+            reserve: reserves[item.key] ?? 0,
+          ),
+      },
+    );
   }
 
   /// Wide CSV is a snapshot, not transactions: one row, arbitrary named columns.

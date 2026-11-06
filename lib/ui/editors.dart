@@ -393,7 +393,14 @@ class _CardEditorState extends State<CardEditor> {
       text: decimalMoney(widget.card?.opening ?? 0),
     );
     budget = TextEditingController(
-      text: decimalMoney(widget.card?.budget ?? 0),
+      text: decimalMoney(
+        widget.kind == CardKind.expense
+            ? widget.controller.data
+                      .planFor(widget.controller.month)
+                      .limits[widget.card?.id] ??
+                  0
+            : widget.card?.budget ?? 0,
+      ),
     );
     icon =
         widget.card?.icon ??
@@ -578,7 +585,9 @@ class _CardEditorState extends State<CardEditor> {
                 labelText: widget.kind == CardKind.expense
                     ? 'Лимит на месяц, ₽'
                     : 'План дохода на месяц, ₽',
-                helperText: '0 — без лимита',
+                helperText: widget.kind == CardKind.expense
+                    ? '${monthName(widget.controller.month)} · 0 — общий резерв'
+                    : '0 — без лимита',
               ),
             ),
           const SizedBox(height: 20),

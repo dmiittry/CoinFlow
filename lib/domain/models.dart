@@ -100,11 +100,33 @@ class MoneyEntry {
 class FinanceData {
   final List<MoneyCard> cards;
   final List<MoneyEntry> entries;
+  final Map<String, MonthlyPlan> monthlyPlans;
   FinanceData({
     required List<MoneyCard> cards,
     required List<MoneyEntry> entries,
+    Map<String, MonthlyPlan> monthlyPlans = const {},
   }) : cards = List.unmodifiable(cards),
-       entries = List.unmodifiable(entries);
+       entries = List.unmodifiable(entries),
+       monthlyPlans = Map.unmodifiable(monthlyPlans);
+
+  FinanceData copyWith({
+    List<MoneyCard>? cards,
+    List<MoneyEntry>? entries,
+    Map<String, MonthlyPlan>? monthlyPlans,
+  }) => FinanceData(
+    cards: cards ?? this.cards,
+    entries: entries ?? this.entries,
+    monthlyPlans: monthlyPlans ?? this.monthlyPlans,
+  );
+
+  MonthlyPlan planFor(DateTime month) =>
+      monthlyPlans[monthKey(month)] ??
+      MonthlyPlan(
+        limits: {
+          for (final c in cards)
+            if (c.kind == CardKind.expense && c.budget > 0) c.id: c.budget,
+        },
+      );
 
   MoneyCard card(String id) => cards.firstWhere((c) => c.id == id);
   int value(MoneyCard card, DateTime month) {
@@ -136,6 +158,9 @@ class FinanceData {
     'version': 1,
     'cards': cards.map((c) => c.toJson()).toList(),
     'entries': entries.map((e) => e.toJson()).toList(),
+    'monthly_plans': monthlyPlans.map(
+      (key, plan) => MapEntry(key, plan.toJson()),
+    ),
   };
   factory FinanceData.fromJson(Map<String, dynamic> json) {
     if (json['version'] != 1) {
@@ -146,6 +171,9 @@ class FinanceData {
       entries: (json['entries'] as List)
           .map((e) => MoneyEntry.fromJson(e))
           .toList(),
+      monthlyPlans: (json['monthly_plans'] as Map<String, dynamic>? ?? {}).map(
+        (key, value) => MapEntry(key, MonthlyPlan.fromJson(value)),
+      ),
     );
     data.validate();
     return data;
@@ -183,6 +211,25 @@ class FinanceData {
       checkAggregate(c.opening.abs() + c.budget);
     }
     final entryIds = <String>{};
+    for (final item in monthlyPlans.entries) {
+      if (!RegExp(r'^\d{4}-(0[1-9]|1[0-2])$').hasMatch(item.key) ||
+          item.key.startsWith('0000')) {
+        throw const FormatException('Некорректный месяц плана');
+      }
+      final plan = item.value;
+      if (plan.reserve < 0 || plan.reserve > maxMoney) {
+        throw const FormatException('Некорректная сумма резерва');
+      }
+      checkAggregate(plan.reserve);
+      for (final limit in plan.limits.entries) {
+        if (byId[limit.key]?.kind != CardKind.expense ||
+            limit.value <= 0 ||
+            limit.value > maxMoney) {
+          throw const FormatException('Некорректная категория или сумма плана');
+        }
+        checkAggregate(limit.value);
+      }
+    }
     for (final e in entries) {
       if (e.id.trim().isEmpty ||
           !entryIds.add(e.id) ||
@@ -208,6 +255,23 @@ class FinanceData {
       }
     }
   }
+}
+
+String monthKey(DateTime date) =>
+    '${date.year.toString().padLeft(4, '0')}-${date.month.toString().padLeft(2, '0')}';
+
+/// An explicit monthly snapshot. Unlisted expense categories share the reserve.
+class MonthlyPlan {
+  final Map<String, int> limits;
+  final int reserve;
+  MonthlyPlan({Map<String, int> limits = const {}, this.reserve = 0})
+    : limits = Map.unmodifiable(limits);
+  int get total => limits.values.fold(reserve, (sum, amount) => sum + amount);
+  Map<String, dynamic> toJson() => {'limits': limits, 'reserve': reserve};
+  factory MonthlyPlan.fromJson(Map<String, dynamic> json) => MonthlyPlan(
+    limits: Map<String, int>.from(json['limits'] as Map),
+    reserve: json['reserve'] as int,
+  );
 }
 
 bool sameMonth(DateTime a, DateTime b) =>

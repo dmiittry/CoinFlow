@@ -102,13 +102,41 @@ class AppController extends ChangeNotifier {
     }
   }
 
-  Future<void> saveCard(MoneyCard card) => replace(
-    FinanceData(
-      cards: data.cards.any((c) => c.id == card.id)
-          ? data.cards.map((c) => c.id == card.id ? card : c).toList()
-          : [...data.cards, card],
-      entries: data.entries,
-    ),
+  Future<void> saveCard(MoneyCard card) {
+    final plans = {...data.monthlyPlans};
+    var storedCard = card;
+    if (card.kind == CardKind.expense) {
+      if (card.budget < 0) {
+        throw const FormatException('Отрицательный лимит или сумма категории');
+      }
+      if (card.budget > maxMoney) {
+        throw const FormatException('Слишком большая сумма карточки');
+      }
+      final plan = data.planFor(month);
+      final limits = {...plan.limits}..remove(card.id);
+      if (card.budget > 0) limits[card.id] = card.budget;
+      plans[monthKey(month)] = MonthlyPlan(
+        limits: limits,
+        reserve: plan.reserve,
+      );
+      // Keep legacy defaults stable: editing October must not rewrite September.
+      storedCard = card.copyWith(
+        budget:
+            data.cards.where((c) => c.id == card.id).firstOrNull?.budget ?? 0,
+      );
+    }
+    return replace(
+      data.copyWith(
+        cards: data.cards.any((c) => c.id == card.id)
+            ? data.cards.map((c) => c.id == card.id ? storedCard : c).toList()
+            : [...data.cards, storedCard],
+        monthlyPlans: plans,
+      ),
+    );
+  }
+
+  Future<void> savePlan(DateTime month, MonthlyPlan plan) => replace(
+    data.copyWith(monthlyPlans: {...data.monthlyPlans, monthKey(month): plan}),
   );
   Future<void> deleteCard(MoneyCard card) async {
     if (data.entries.any(
@@ -119,23 +147,29 @@ class AppController extends ChangeNotifier {
       );
     }
     await replace(
-      FinanceData(
+      data.copyWith(
         cards: data.cards.where((c) => c.id != card.id).toList(),
-        entries: data.entries,
+        monthlyPlans: data.monthlyPlans.map(
+          (key, plan) => MapEntry(
+            key,
+            MonthlyPlan(
+              limits: {...plan.limits}..remove(card.id),
+              reserve: plan.reserve,
+            ),
+          ),
+        ),
       ),
     );
   }
 
-  Future<void> addEntry(MoneyEntry entry) => replace(
-    FinanceData(cards: data.cards, entries: [...data.entries, entry]),
-  );
+  Future<void> addEntry(MoneyEntry entry) =>
+      replace(data.copyWith(entries: [...data.entries, entry]));
   Future<void> updateEntry(MoneyEntry entry) async {
     if (!data.entries.any((e) => e.id == entry.id)) {
       throw StateError('Операция уже удалена');
     }
     await replace(
-      FinanceData(
-        cards: data.cards,
+      data.copyWith(
         entries: [
           for (final current in data.entries)
             current.id == entry.id ? entry : current,
@@ -150,8 +184,7 @@ class AppController extends ChangeNotifier {
       ? (repository as LocalFinanceRepository).previousData
       : null;
   Future<void> deleteEntry(MoneyEntry entry) => replace(
-    FinanceData(
-      cards: data.cards,
+    data.copyWith(
       entries: data.entries.where((e) => e.id != entry.id).toList(),
     ),
   );

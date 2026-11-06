@@ -84,7 +84,17 @@ Future<void> tap(WidgetTester tester, Finder finder) async {
   if (finder.evaluate().isEmpty) {
     for (final delta in [300.0, -300.0]) {
       for (var i = 0; i < 25 && finder.evaluate().isEmpty; i++) {
-        await tester.drag(find.byType(Scrollable).last, Offset(0, -delta));
+        await tester.drag(
+          find
+              .byWidgetPredicate(
+                (w) =>
+                    w is Scrollable &&
+                    (w.axisDirection == AxisDirection.down ||
+                        w.axisDirection == AxisDirection.up),
+              )
+              .last,
+          Offset(0, -delta),
+        );
         await tester.pump();
       }
       if (finder.evaluate().isNotEmpty) break;
@@ -94,10 +104,26 @@ Future<void> tap(WidgetTester tester, Finder finder) async {
   final target = button.evaluate().length == 1 ? button : finder;
   await Scrollable.ensureVisible(tester.element(target), alignment: .5);
   await tester.pump();
+  if (find
+      .byWidgetPredicate(
+        (w) =>
+            (w is LinearProgressIndicator && w.value == null) ||
+            (w is CircularProgressIndicator && w.value == null),
+      )
+      .evaluate()
+      .isEmpty) {
+    await tester.pumpAndSettle();
+  }
   await tester.tap(target, warnIfMissed: true);
   await tester.pump(const Duration(milliseconds: 350));
-  if (find.byType(LinearProgressIndicator).evaluate().isEmpty &&
-      find.byType(CircularProgressIndicator).evaluate().isEmpty) {
+  if (find
+      .byWidgetPredicate(
+        (w) =>
+            (w is LinearProgressIndicator && w.value == null) ||
+            (w is CircularProgressIndicator && w.value == null),
+      )
+      .evaluate()
+      .isEmpty) {
     await tester.pumpAndSettle();
   }
 }
@@ -394,6 +420,7 @@ void main() {
       (widget) => widget is MoneyTile && widget.card.id == 'bank',
     );
     await tester.ensureVisible(source);
+    await tester.pumpAndSettle();
     final gesture = await tester.startGesture(tester.getCenter(source));
     await tester.pump(const Duration(milliseconds: 700));
     await gesture.moveTo(tester.getCenter(target));
@@ -811,7 +838,8 @@ void main() {
       await tap(tester, find.text(ok));
       await tap(tester, find.byKey(const ValueKey('icon-bank')));
       await tap(tester, find.text('Сохранить карточку'));
-      expect(c.data.card('food').budget, 150050);
+      expect(c.data.planFor(c.month).limits['food'], 150050);
+      expect(c.data.card('food').budget, 100000);
       expect(c.data.card('food').openingDate.day, 1);
       expect(c.data.card('food').icon, 'bank');
       expect(tester.takeException(), isNull);
